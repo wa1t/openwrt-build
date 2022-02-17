@@ -1,0 +1,72 @@
+name: OpenWrt-K2P
+
+on: 
+  workflow_dispatch:
+
+  schedule:
+    - cron: 0 20 15 * *
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@master
+
+    - name: Initialization environment
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        sudo apt-get update
+        sudo apt-get -y install \
+          build-essential ccache ecj fastjar file g++ gawk \
+          gettext git java-propose-classpath libelf-dev libncurses5-dev \
+          libncursesw5-dev libssl-dev python python2.7-dev python3 unzip wget \
+          python3-distutils python3-setuptools python3-dev rsync subversion \
+          swig time xsltproc zlib1g-dev 
+
+    - name: Clone source code
+      env: 
+        REPO_URL: https://github.com/coolsnowwolf/lede.git
+        REPO_BRANCH: master
+      run: |
+        git clone --depth 1 -b $REPO_BRANCH $REPO_URL openwrt
+
+    - name: Update & Install feeds
+      working-directory: openwrt
+      run: |
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
+
+    - name: Modify default IP
+      working-directory: openwrt
+      env:
+        IP_ADDR: 10.10.10.1
+      run: |
+        sed -i "s/192.168.1.1/"$IP_ADDR"/g" package/base-files/files/bin/config_generate
+
+    - name: Apply custom configuration
+      working-directory: openwrt
+      env:
+        CONFIG_FILE: k2p.ini
+      run: |
+        mv ../$CONFIG_FILE .config
+        make defconfig
+        
+    - name: Download packages
+      working-directory: openwrt
+      run: |
+        make download -j$(nproc)
+        find dl -size -1024c -exec rm -f {} \;
+
+    - name: Build firmware
+      working-directory: openwrt
+      run: |
+        make -j$(nproc) || make -j$(nproc) V=s || make V=s
+
+    - name : Upload artifacts
+      uses: actions/upload-artifact@master
+      with:
+        name: OpenWrt-K2P
+        path: openwrt/bin
